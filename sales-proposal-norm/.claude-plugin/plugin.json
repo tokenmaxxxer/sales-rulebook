@@ -1,0 +1,7 @@
+{
+  "name": "sales-proposal-norm",
+  "description": "Enforces the sales role's phase-1 proposal norm (docs/issue-1/proposals/methodology-norms.md (a)): six required sections in order on any sales phase-1 proposal write. Kill switch: SALES_PROPOSAL_NORM_GATE_OFF=1.",
+  "author": {
+    "name": "Jung Jiwon & Lee Jongkwan"
+  }
+}

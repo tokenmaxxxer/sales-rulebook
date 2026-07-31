@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Sourced fragment (not a standalone hook) — sales/hooks/directive.sh composes
+# this into the SessionStart banner. Owns the qualification-criteria facet.
+SALES_QUALIFICATION_FRAGMENT="PRODUCES (qualification criteria): framework_used must be MEDDPICC (default) or BANT (named fallback for short-cycle/simple deals) — never silently omitted. Under MEDDPICC, all 8 fields (Metrics, Economic Buyer, Decision Criteria, Decision Process, Paper Process, Identify Pain, Champion, Competition) must carry a value or explicit unknown/blocked marker; no field may be silently absent. Economic Buyer and Champion must be named (not TBD) before an opportunity advances past initial qualification. Enforced by sales-qualification-meddpicc's PreToolUse gate. Kill switch: SALES_QUALIFICATION_GATE_OFF=1."

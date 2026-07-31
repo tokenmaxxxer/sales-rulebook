@@ -7,7 +7,27 @@
     {
       "name": "sales",
       "source": "./sales",
-      "description": "The sales role on contract v3 (issue-160 round-3 promotion). Decides: 리드/기회를 어떻게 진행시킬지."
+      "description": "The sales role on contract v3 (issue-160 round-3 promotion). Decides: 리드/기회를 어떻게 진행시킬지. Role-shell that composes the four methodology plugins below; owns identity and hand-off, not methodology mechanics."
+    },
+    {
+      "name": "sales-proposal-norm",
+      "source": "./sales-proposal-norm",
+      "description": "Enforces the sales role's phase-1 proposal norm: six required sections in order on any sales phase-1 proposal write. Kill switch: SALES_PROPOSAL_NORM_GATE_OFF=1."
+    },
+    {
+      "name": "sales-qualification-meddpicc",
+      "source": "./sales-qualification-meddpicc",
+      "description": "Enforces the sales role's qualification-criteria methodology: MEDDPICC default with no field silently omitted, BANT named fallback, Economic Buyer + Champion required before advancement. Kill switch: SALES_QUALIFICATION_GATE_OFF=1."
+    },
+    {
+      "name": "sales-stage-definitions",
+      "source": "./sales-stage-definitions",
+      "description": "Enforces the sales role's stage-definitions methodology: 5-7 stages, >=2 falsifiable past-tense exit criteria per stage, named next-stage handoff. Kill switch: SALES_STAGE_DEFINITIONS_GATE_OFF=1."
+    },
+    {
+      "name": "sales-playbook",
+      "source": "./sales-playbook",
+      "description": "Enforces the sales role's playbook methodology: five required sections, marketing hand-off boundary (no inline messaging/positioning copy). Kill switch: SALES_PLAYBOOK_GATE_OFF=1."
     }
   ]
 }
