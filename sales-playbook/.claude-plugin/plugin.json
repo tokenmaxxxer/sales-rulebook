@@ -1,0 +1,7 @@
+{
+  "name": "sales-playbook",
+  "description": "Enforces the sales role's playbook methodology (docs/issue-1/proposals/methodology-norms.md (b) Sales playbook): five required sections present, marketing hand-off boundary (no inline messaging/positioning copy). Kill switch: SALES_PLAYBOOK_GATE_OFF=1.",
+  "author": {
+    "name": "Jung Jiwon & Lee Jongkwan"
+  }
+}

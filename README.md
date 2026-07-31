@@ -12,16 +12,28 @@ generated as skeleton scaffolding by issue-170.
 
 ## Install
 
+This rulebook is a **plugin set**, not one bundled plugin: one independent
+plugin per adopted methodology (per
+`docs/issue-10/proposals/methodology-enforcement.md`), at the same
+completeness bar as core's `freelunch`/`scout` plugins. Install `sales`
+plus whichever methodology plugins the work touches — a role working only
+on stage definitions in a given issue only needs `sales` +
+`sales-stage-definitions`, not all four.
+
 ```
 claude plugin marketplace add tokenmaxxxer/sales-rulebook
 claude plugin install sales
+claude plugin install sales-proposal-norm
+claude plugin install sales-qualification-meddpicc
+claude plugin install sales-stage-definitions
+claude plugin install sales-playbook
 ```
 
-Also install `tokenmaxxxer-core` alongside this plugin — it owns the commit-trailer,
-record-field, and handbook-trigger gates (parameterized on `CLAUDE_ROLE`), the
-role-directive boilerplate this role's `directive.sh` sources, and the
-`warrant` hunt agent this role references. Without it, this role has no
-gates and no hunt agent.
+Also install `tokenmaxxxer-core` alongside this plugin set — it owns the
+commit-trailer, record-field, and handbook-trigger gates (parameterized on
+`CLAUDE_ROLE`), the role-directive boilerplate `sales/hooks/directive.sh`
+sources, and the `warrant` hunt agent this role references. Without it,
+this role has no core gates and no hunt agent.
 
 ```
 claude plugin marketplace add tokenmaxxxer/tokenmaxxxer-core
@@ -31,25 +43,40 @@ claude plugin install warrant
 
 ## Layout
 
-- `sales/.claude-plugin/plugin.json` — plugin manifest
-- `sales/hooks/hooks.json` — SessionStart and PreToolUse wiring (the generic
-  §20 record-field/commit-trailer/handbook-trigger gates are core canon; this
-  role additionally registers its own `record-fields-gate.sh`)
-- `sales/hooks/directive.sh` — SessionStart role directive; a stub over core's
-  `role-directive.sh` carrying only this role's own decides/use_when/produces/hand-off
-- `sales/hooks/record-fields-gate.sh` — PreToolUse addendum, role-owned: on a
-  write to this role's own record, requires `framework_used`/`stage_count`/
-  `exit_criteria_present` whenever the record documents a qualification-
-  criteria or stage-definition deliverable (see
-  `docs/issue-1/proposals/methodology-norms.md` (d)) — not a core duplicate,
-  since core's generic gate has no per-role custom-field config surface
-- `sales/hooks/tests/run-stub-check.sh` — thin wrapper referencing core's
-  drift-recurrence check (`core/hooks/tests/stub-check.sh`); run before
-  treating a directive/gate change as done — never vendor the check itself
-- `sales/agents/warrant-hunter.md` — reference stub; the hunt agent itself is
-  core's `warrant` plugin
+- `sales/` — role-shell (thin): identity, hand-off, composes the four
+  methodology plugins below into one SessionStart directive.
+  - `.claude-plugin/plugin.json` — plugin manifest
+  - `hooks/hooks.json` — SessionStart wiring only; methodology PreToolUse
+    gates live in their own plugins, not here
+  - `hooks/directive.sh` — sources core's `role-directive.sh` for the
+    decides/use_when/hand-off boilerplate, plus the four methodology
+    plugins' `hooks/directive.sh` fragments (proposal-norm -> qualification
+    -> stages -> playbook, fixed order) for the PRODUCES/USE_WHEN facets
+  - `hooks/tests/run-stub-check.sh` — thin wrapper referencing core's
+    drift-recurrence check (`core/hooks/tests/stub-check.sh`); run before
+    treating a directive/gate change as done — never vendor the check itself
+  - `agents/warrant-hunter.md` — reference stub; the hunt agent itself is
+    core's `warrant` plugin
+- `sales-proposal-norm/` — phase-1 (기획서) norm in full: six required
+  proposal sections, gate (`hooks/proposal-norm-gate.sh`), tests, kill
+  switch `SALES_PROPOSAL_NORM_GATE_OFF=1`
+- `sales-qualification-meddpicc/` — qualification-criteria methodology:
+  MEDDPICC default (all 8 fields checked, none silently omitted) / BANT
+  fallback, Economic Buyer + Champion required before advancement, gate
+  (`hooks/qualification-gate.sh`), tests, kill switch
+  `SALES_QUALIFICATION_GATE_OFF=1`
+- `sales-stage-definitions/` — stage-definitions methodology: 5-7 stages,
+  >=2 falsifiable past-tense exit criteria per stage, gate
+  (`hooks/stage-definitions-gate.sh`), tests, kill switch
+  `SALES_STAGE_DEFINITIONS_GATE_OFF=1`
+- `sales-playbook/` — sales-playbook methodology: five required sections,
+  marketing hand-off boundary, gate (`hooks/playbook-gate.sh`), tests, kill
+  switch `SALES_PLAYBOOK_GATE_OFF=1`
 - `docs/specs/approvers.md` — Approve-authority allowlist (see below)
 
-This is scaffolding, not a finished rulebook: fill in doctrine detail,
-handoff enforcement, and any role-specific progress gate before treating
-it as load-bearing.
+Each methodology plugin is self-contained (own manifest, gate, tests, kill
+switch) and independently installable/testable — the phase-2 (산출물) norm
+is the composition of the three PRODUCES plugins, the phase-1 (기획서) norm
+is `sales-proposal-norm` alone. See
+`docs/issue-10/proposals/methodology-enforcement.md` for the full
+composition design.

@@ -1,0 +1,7 @@
+{
+  "name": "sales-stage-definitions",
+  "description": "Enforces the sales role's stage-definitions methodology (docs/issue-1/proposals/methodology-norms.md (b) Stage definitions): 5-7 stages, >=2 falsifiable past-tense exit criteria per stage, named next-stage handoff. Kill switch: SALES_STAGE_DEFINITIONS_GATE_OFF=1.",
+  "author": {
+    "name": "Jung Jiwon & Lee Jongkwan"
+  }
+}
