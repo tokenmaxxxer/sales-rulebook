@@ -17,15 +17,28 @@ claude plugin marketplace add tokenmaxxxer/sales-rulebook
 claude plugin install sales
 ```
 
+Also install `tokenmaxxxer-core` alongside this plugin — it owns the commit-trailer,
+record-field, and handbook-trigger gates (parameterized on `CLAUDE_ROLE`), the
+role-directive boilerplate this role's `directive.sh` sources, and the
+`warrant` hunt agent this role references. Without it, this role has no
+gates and no hunt agent.
+
+```
+claude plugin marketplace add tokenmaxxxer/tokenmaxxxer-core
+claude plugin install core
+claude plugin install warrant
+```
+
 ## Layout
 
 - `sales/.claude-plugin/plugin.json` — plugin manifest
-- `sales/hooks/hooks.json` — SessionStart + PreToolUse wiring
-- `sales/hooks/directive.sh` — SessionStart role directive
-- `sales/hooks/record-fields-gate.sh` — this role's record required-field gate
-- `sales/hooks/trailer-gate.sh` — commit `Subject: issue-<n>` trailer gate
-- `sales/hooks/handbook-trigger-gate.sh` — s21 handbook-sync gate
-- `sales/agents/warrant-hunter.md` — rotating-stance hunt agent
+- `sales/hooks/hooks.json` — SessionStart wiring (PreToolUse gates are core canon now)
+- `sales/hooks/directive.sh` — SessionStart role directive; a stub over core's
+  `role-directive.sh` carrying only this role's own decides/use_when/produces/hand-off
+- `sales/hooks/tests/stub-check.sh` — vendored copy of core's drift-recurrence
+  check; run against `sales/` before treating a directive/gate change as done
+- `sales/agents/warrant-hunter.md` — reference stub; the hunt agent itself is
+  core's `warrant` plugin
 - `docs/specs/approvers.md` — Approve-authority allowlist (see below)
 
 This is scaffolding, not a finished rulebook: fill in doctrine detail,
