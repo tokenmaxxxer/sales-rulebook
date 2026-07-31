@@ -32,9 +32,17 @@ claude plugin install warrant
 ## Layout
 
 - `sales/.claude-plugin/plugin.json` — plugin manifest
-- `sales/hooks/hooks.json` — SessionStart wiring (PreToolUse gates are core canon now)
+- `sales/hooks/hooks.json` — SessionStart and PreToolUse wiring (the generic
+  §20 record-field/commit-trailer/handbook-trigger gates are core canon; this
+  role additionally registers its own `record-fields-gate.sh`)
 - `sales/hooks/directive.sh` — SessionStart role directive; a stub over core's
   `role-directive.sh` carrying only this role's own decides/use_when/produces/hand-off
+- `sales/hooks/record-fields-gate.sh` — PreToolUse addendum, role-owned: on a
+  write to this role's own record, requires `framework_used`/`stage_count`/
+  `exit_criteria_present` whenever the record documents a qualification-
+  criteria or stage-definition deliverable (see
+  `docs/issue-1/proposals/methodology-norms.md` (d)) — not a core duplicate,
+  since core's generic gate has no per-role custom-field config surface
 - `sales/hooks/tests/run-stub-check.sh` — thin wrapper referencing core's
   drift-recurrence check (`core/hooks/tests/stub-check.sh`); run before
   treating a directive/gate change as done — never vendor the check itself
