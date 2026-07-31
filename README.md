@@ -35,8 +35,9 @@ claude plugin install warrant
 - `sales/hooks/hooks.json` — SessionStart wiring (PreToolUse gates are core canon now)
 - `sales/hooks/directive.sh` — SessionStart role directive; a stub over core's
   `role-directive.sh` carrying only this role's own decides/use_when/produces/hand-off
-- `sales/hooks/tests/stub-check.sh` — vendored copy of core's drift-recurrence
-  check; run against `sales/` before treating a directive/gate change as done
+- `sales/hooks/tests/run-stub-check.sh` — thin wrapper referencing core's
+  drift-recurrence check (`core/hooks/tests/stub-check.sh`); run before
+  treating a directive/gate change as done — never vendor the check itself
 - `sales/agents/warrant-hunter.md` — reference stub; the hunt agent itself is
   core's `warrant` plugin
 - `docs/specs/approvers.md` — Approve-authority allowlist (see below)
