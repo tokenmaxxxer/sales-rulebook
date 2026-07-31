@@ -6,6 +6,14 @@
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/directive.sh" }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/record-fields-gate.sh" }
+        ]
+      }
     ]
   }
 }
