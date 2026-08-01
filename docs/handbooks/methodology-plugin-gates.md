@@ -20,26 +20,40 @@ exit code (`0` = allow, `2` = deny) — the shape confirmed in
 vendored, per `docs/handbooks/canon-scripts.md`).
 
 - `proposal-norm-gate.sh` — targets `docs/issue-<n>/proposals/*sales*.md`;
-  denies a write missing any of the six phase-1 sections. Kill switch
+  denies a write missing any of the six phase-1 sections, matched as
+  actual markdown headings (not substring). Kill switch
   `SALES_PROPOSAL_NORM_GATE_OFF=1`.
 - `qualification-gate.sh` — targets `docs/issue-<n>/reports/sales.md`;
-  under `framework_used: MEDDPICC`, checks all 8 fields individually (not
-  just Economic Buyer/Champion — added per the issue #10 approval comment
+  scopes its check to the section from the `framework_used:` declaring
+  line to the next heading of equal-or-higher level. Under
+  `framework_used: MEDDPICC`, checks all 8 fields individually (not just
+  Economic Buyer/Champion — added per the issue #10 approval comment
   "EB/Champion 외 MEDDPICC 전 필드 검사 추가") and separately requires
   named Economic Buyer/Champion before advancement past initial
   qualification. Kill switch `SALES_QUALIFICATION_GATE_OFF=1`.
 - `stage-definitions-gate.sh` — targets the same record path; requires
-  `stage_count` in [5,7] and `exit_criteria_present` per stage, denies a
-  rep-activity-verb stage name (keyword heuristic). Kill switch
+  `stage_count` in [5,7] via actual detected stage headings, and
+  `>=2` exit criteria plus a named next-stage handoff per stage, scoped
+  to that stage's own section body. Kill switch
   `SALES_STAGE_DEFINITIONS_GATE_OFF=1`.
 - `playbook-gate.sh` — targets the same record path; requires all five
-  playbook sections, denies inline messaging-script/positioning copy.
+  playbook sections as actual markdown headings, denies inline
+  messaging-script/positioning copy scoped to the sections it appears in.
   Kill switch `SALES_PLAYBOOK_GATE_OFF=1`.
 
-All four share the fail-closed shape confirmed independently in
-`pricing-rulebook/pricing/hooks/methodology-gate.sh` and
-`implementation-rulebook/coding/hooks/coding-progress-gate.sh`: `trap __fc
-EXIT` at top, `CLAUDE_PROJECT_DIR`/git-root path resolution, full-content
-reconstruction for Write/Edit/MultiEdit, a python3 judge wrapped in
-try/except for fail-closed-on-internal-error, and a single missing-list
-`deny()`. Each plugin's own `README.md` documents its Install/Layout.
+All four source `core/hooks/lib/gate-lib.sh` / `gate-lib.py` (issue-13,
+reference-adopting core issue #72's gate-house standard) instead of
+hand-rolling their own trap/kill-switch/JSON-parse/path-normalize/
+Edit-MultiEdit-reconstruct logic: `gate_trap_fail_closed` at top (before
+`set -uo pipefail`), `gate_kill_switch_active` (fail-closed on any
+unrecognized kill-switch value), `gate_parse_json_or_deny` (malformed or
+non-object JSON denies), `gate_normalize_path`, and
+`gate_reconstruct_write` (`replace_all`-aware for both Edit and per-edit
+MultiEdit). `CLAUDE_PROJECT_DIR`/git-root path resolution and each gate's
+own methodology-specific semantic check (section/heading-scoped,
+label-adjacent, value-capturing — never a whole-document substring scan)
+remain each gate's own responsibility, since gate-lib deliberately does
+not cover methodology semantics. `core/hooks/tests/compliance-check.sh`
+(referenced, never vendored) can be run against any plugin's `hooks/`
+directory to confirm gate-lib adoption. Each plugin's own `README.md`
+documents its Install/Layout.

@@ -1,32 +1,29 @@
 #!/usr/bin/env bash
-__fc(){ rc=$?; if [ "$rc" != 0 ] && [ "$rc" != 2 ]; then echo "fail-closed: gate aborted (rc=$rc)" >&2; exit 2; fi; }
-trap __fc EXIT
+. "${CLAUDE_PLUGIN_ROOT_CORE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../core" && pwd -P)}/hooks/lib/gate-lib.sh"
+gate_trap_fail_closed
+set -uo pipefail
+gate_kill_switch_active "${SALES_STAGE_DEFINITIONS_GATE_OFF:-}" || { trap - EXIT; gate_allow; }
 # PreToolUse gate (Write|Edit|MultiEdit) — enforces the sales role's
 # stage-definitions methodology (docs/issue-1/proposals/methodology-norms.md
 # (b) Stage definitions) on docs/issue-<n>/reports/sales.md. On top of
 # (never instead of) core canon's generic record-fields-gate.sh.
 #
-# Requires stage_count as an integer in [5,7], exit_criteria_present stated
-# per stage, and denies when a stage name matches a rep-activity verb
-# (documented heuristic, not a full parse — matches this repo family's
-# accepted keyword/regex precision level).
+# Requires 5-7 detected stage sections (structure-scoped, via markdown
+# heading delimiters), each with >=2 falsifiable past-tense exit criteria
+# and a named next-stage handoff (label-adjacent-value-capture, not
+# substring presence anywhere in the doc).
 #
-# Kill switch: export SALES_STAGE_DEFINITIONS_GATE_OFF=1
-set -uo pipefail
+# Kill switch: export SALES_STAGE_DEFINITIONS_GATE_OFF=1 (unrecognized
+# values stay ACTIVE; only recognized on-spellings 1/true/yes/on disable).
 
 role="${CLAUDE_ROLE:-sales}"
-deny() { echo "${role}: refused — $1" >&2; exit 2; }
+deny() { gate_deny "$role" "$1"; }
 
-case "${SALES_STAGE_DEFINITIONS_GATE_OFF:-}" in
-  ""|0|false|no|off) ;;
-  *) exit 0 ;;
-esac
-
-[ "$role" = "sales" ] || exit 0
+[ "$role" = "sales" ] || { trap - EXIT; gate_allow; }
 command -v python3 >/dev/null 2>&1 || deny "stage-definitions-gate.sh requires python3, which is not on PATH; denying rather than guessing."
 
 payload="$(cat 2>/dev/null || true)"
-[ -n "$payload" ] || exit 0
+if [ -z "$payload" ]; then trap - EXIT; gate_allow; fi
 
 _target="$(printf '%s' "$payload" | python3 -c '
 import json,sys
@@ -67,46 +64,37 @@ SD_PAYLOAD="$payload" SD_ROOT="$root" \
 python3 <<'PY'
 import sys as _fc_sys
 try:
-    import json, os, posixpath, re, sys
+    import importlib.util, json, os, posixpath, re, sys
+
+    _spec = importlib.util.spec_from_file_location("gate_lib", os.environ["GATE_LIB_PY"])
+    gate_lib = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(gate_lib)
 
     def deny(m):
         sys.stderr.write("sales: refused — %s\n" % m); sys.exit(2)
 
     raw = os.environ.get("SD_PAYLOAD", "")
-    try:
-        ev = json.loads(raw) if raw else {}
-    except ValueError:
-        sys.exit(0)
-    if not isinstance(ev, dict):
-        sys.exit(0)
+    ev = gate_lib.gate_parse_json_or_deny(raw, deny)
 
     tool = ev.get("tool_name")
     ti = ev.get("tool_input")
     if not isinstance(ti, dict) or tool not in ("Write", "Edit", "MultiEdit"):
         sys.exit(0)
 
-    root = posixpath.normpath(os.environ["SD_ROOT"].replace("\\", "/"))
+    root = os.environ["SD_ROOT"]
     TARGET_RE = re.compile(r'^docs/issue-[0-9]+/reports/sales\.md$')
-
-    def resolve(p):
-        n = p.replace("\\", "/")
-        a = n if posixpath.isabs(n) else posixpath.join(root, n)
-        a = posixpath.normpath(a)
-        try:
-            return posixpath.normpath(os.path.realpath(a).replace("\\", "/"))
-        except OSError:
-            return a
 
     path = ti.get("file_path")
     if not isinstance(path, str) or not path:
         sys.exit(0)
 
-    r = resolve(path)
-    if not r.startswith(root + "/"):
+    rel = gate_lib.gate_normalize_path(root, path)
+    if rel is None:
         sys.exit(0)
-    rel = r[len(root):].lstrip("/")
     if not TARGET_RE.match(rel):
         sys.exit(0)
+
+    root_fs = posixpath.normpath(root.replace("\\", "/"))
+    r = posixpath.join(root_fs, rel)
 
     current = None
     if os.path.isfile(r):
@@ -116,31 +104,8 @@ try:
         except OSError:
             deny("%s exists but cannot be read; failing closed on stage definitions." % rel)
 
-    new_text = None
-    if tool == "Write":
-        c = ti.get("content")
-        if isinstance(c, str):
-            new_text = c
-    elif tool == "Edit":
-        o, n = ti.get("old_string"), ti.get("new_string")
-        if isinstance(o, str) and isinstance(n, str) and current is not None and o in current:
-            new_text = current.replace(o, n, 1)
-    elif tool == "MultiEdit":
-        edits = ti.get("edits")
-        text = current
-        if isinstance(edits, list) and text is not None:
-            ok = True
-            for e in edits:
-                if not isinstance(e, dict):
-                    ok = False; break
-                o, n = e.get("old_string"), e.get("new_string")
-                if not isinstance(o, str) or not isinstance(n, str) or o not in text:
-                    ok = False; break
-                text = text.replace(o, n, 1)
-            if ok:
-                new_text = text
-
-    if new_text is None:
+    new_text, ok = gate_lib.gate_reconstruct_write(tool, ti, current)
+    if not ok:
         deny(
             "this write targets %s but the gate cannot determine the resulting content "
             "from the tool input (tool=%r). Write the full document with Write, or use an "
@@ -148,44 +113,132 @@ try:
             "checked." % (rel, tool)
         )
 
-    low = new_text.lower()
+    # ---- structure-scoped semantic check ----
+    # A "stage section" is a markdown heading of the form
+    # "## Stage N: <name>" (or "### Stage N: <name>"). Anything mentioning
+    # stage-related words outside of such a heading's scope is prose, not
+    # a stage definition, and does not count.
+    HEADING_RE = re.compile(r'^#{2,4}\s*Stage\s+(\d+)\s*[:\-]\s*(.+?)\s*$', re.IGNORECASE | re.MULTILINE)
+    headings = list(HEADING_RE.finditer(new_text))
 
-    def has_any(*needles):
-        return any(nd in low for nd in needles)
+    if not headings:
+        deny(
+            "stage-definitions deliverable has no detected stage sections (expected "
+            "headings of the form '## Stage N: <name>'). Per "
+            "docs/issue-1/proposals/methodology-norms.md (b) Stage definitions: 5-7 "
+            "stages required."
+        )
 
-    mentions_stage = has_any("stage definition", "stage_count", "stage count")
-    if not mentions_stage:
-        sys.exit(0)  # record never documents a stage-definitions deliverable — out of scope
+    stage_count = len(headings)
+    if stage_count < 5 or stage_count > 7:
+        deny(
+            "stage-definitions deliverable has %d detected stage section(s); must be "
+            "5-7. Per docs/issue-1/proposals/methodology-norms.md (b) Stage definitions."
+            % stage_count
+        )
 
-    missing = []
-
-    m = re.search(r'stage_count\s*[:=]\s*(\d+)', low)
-    if not m:
-        missing.append("stage_count (integer)")
-    else:
-        n = int(m.group(1))
-        if n < 5 or n > 7:
-            missing.append("stage_count in range 5-7 (found %d)" % n)
-
-    if "exit_criteria_present" not in low:
-        missing.append("exit_criteria_present (per stage)")
+    # Scope each stage section: text between this heading and the next
+    # (or end of doc).
+    sections = []
+    for i, m in enumerate(headings):
+        start = m.end()
+        end = headings[i + 1].start() if i + 1 < len(headings) else len(new_text)
+        sections.append((m.group(1), m.group(2).strip(), new_text[start:end]))
 
     REP_ACTIVITY_VERBS = ["had a call", "did a demo", "presented to", "called the",
                           "had good conversation", "had a conversation", "reached out to"]
-    for verb in REP_ACTIVITY_VERBS:
-        if verb in low:
-            missing.append("stage name/criterion uses rep-activity phrasing (%r) instead of a completed buyer action in past tense" % verb)
-            break
 
-    if missing:
+    HANDOFF_PLACEHOLDERS = {"tbd", "unknown", "blocked", "n/a", "?"}
+    HANDOFF_PLACEHOLDER_PREFIXES = ("tbd", "unknown", "blocked", "n/a")
+
+    # label-adjacent-value-capture: `Label: value`, tolerating a
+    # `Label:\nvalue` split across lines.
+    def capture_label_value(text, label_alts):
+        pat = re.compile(
+            r'^\s*[-*]?\s*(?:%s)\s*[:\-]\s*(.*)$' % label_alts,
+            re.IGNORECASE | re.MULTILINE,
+        )
+        m = pat.search(text)
+        if not m:
+            return None
+        val = m.group(1).strip()
+        if not val:
+            # Label:\nvalue split across lines — take the next non-blank line.
+            rest = text[m.end():]
+            for line in rest.splitlines():
+                line = line.strip()
+                if line:
+                    val = line
+                    break
+        return val if val else None
+
+    problems = []
+
+    for num, name, body in sections:
+        low_name = name.lower()
+        for verb in REP_ACTIVITY_VERBS:
+            if verb in low_name:
+                problems.append(
+                    "Stage %s ('%s') uses rep-activity phrasing (%r) instead of a "
+                    "completed buyer action in past tense" % (num, name, verb)
+                )
+                break
+
+        # exit criteria: list items/lines within this section's scope,
+        # under an "Exit criteria" label, excluding the handoff line.
+        criteria_block_m = re.search(
+            r'(?:exit\s*criteria)\s*[:\-]?\s*\n(.*?)(?=\n\s*(?:next[- ]stage|handoff)\s*[:\-]|\Z)',
+            body, re.IGNORECASE | re.DOTALL,
+        )
+        criteria_lines = []
+        if criteria_block_m:
+            for line in criteria_block_m.group(1).splitlines():
+                line = line.strip()
+                if re.match(r'^[-*]\s*\S', line):
+                    criteria_lines.append(re.sub(r'^[-*]\s*', '', line))
+
+        if len(criteria_lines) < 2:
+            problems.append(
+                "Stage %s ('%s') has %d falsifiable exit criterion/criteria (found via "
+                "structure-scoped list scan); must have >=2" % (num, name, len(criteria_lines))
+            )
+        else:
+            for verb in REP_ACTIVITY_VERBS:
+                if any(verb in c.lower() for c in criteria_lines):
+                    problems.append(
+                        "Stage %s ('%s') has an exit criterion using rep-activity "
+                        "phrasing (%r) instead of a completed buyer action in past "
+                        "tense" % (num, name, verb)
+                    )
+                    break
+
+        handoff_val = capture_label_value(body, r'next[- ]stage(?:\s*handoff)?|handoff')
+        if not handoff_val:
+            problems.append(
+                "Stage %s ('%s') is missing a named next-stage handoff" % (num, name)
+            )
+        else:
+            hv_low = handoff_val.strip().lower().strip("*_ ")
+            is_placeholder = hv_low in HANDOFF_PLACEHOLDERS or any(
+                hv_low.startswith(p) for p in HANDOFF_PLACEHOLDER_PREFIXES
+            )
+            if is_placeholder:
+                problems.append(
+                    "Stage %s ('%s') next-stage handoff is a placeholder (%r), not a "
+                    "named stage" % (num, name, handoff_val)
+                )
+
+    if problems:
         deny(
-            "stage-definitions deliverable is missing required element(s) or fails the "
-            "shape check: %s. Per docs/issue-1/proposals/methodology-norms.md (b) Stage "
-            "definitions: 5-7 stages, exit criteria stated per stage, past-tense "
-            "completed-buyer-action naming (never rep activity/judgment)." % ", ".join(missing)
+            "stage-definitions deliverable fails the structure-scoped shape check: %s. "
+            "Per docs/issue-1/proposals/methodology-norms.md (b) Stage definitions: 5-7 "
+            "stages, >=2 falsifiable past-tense exit criteria per stage, named "
+            "next-stage handoff." % "; ".join(problems)
         )
 
     sys.exit(0)
+except SystemExit:
+    raise
 except Exception as _fc_e:
     _fc_sys.stderr.write("stage-definitions-gate.sh: fail-closed: internal error: %r\n" % (_fc_e,))
     _fc_sys.exit(2)

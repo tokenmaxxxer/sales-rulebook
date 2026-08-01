@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-__fc(){ rc=$?; if [ "$rc" != 0 ] && [ "$rc" != 2 ]; then echo "fail-closed: gate aborted (rc=$rc)" >&2; exit 2; fi; }
-trap __fc EXIT
+. "${CLAUDE_PLUGIN_ROOT_CORE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../core" && pwd -P)}/hooks/lib/gate-lib.sh"
+gate_trap_fail_closed
+set -uo pipefail
+gate_kill_switch_active "${SALES_QUALIFICATION_GATE_OFF:-}" || { trap - EXIT; gate_allow; }
 # PreToolUse gate (Write|Edit|MultiEdit) — enforces the sales role's
 # qualification-criteria methodology (docs/issue-1/proposals/
 # methodology-norms.md (b) Qualification criteria) on
@@ -16,16 +18,15 @@ trap __fc EXIT
 # states an opportunity has advanced past initial qualification, requires
 # non-TBD economic_buyer and champion specifically.
 #
+# Semantic checks are section-scoped (from the framework_used declaration
+# to the next heading of equal-or-higher level or EOF) and label-adjacent
+# value-capturing, not a whole-document substring scan (issue-13 phase 2).
+#
 # Kill switch: export SALES_QUALIFICATION_GATE_OFF=1
-set -uo pipefail
+# (unrecognized values stay ACTIVE — see gate_kill_switch_active)
 
 role="${CLAUDE_ROLE:-sales}"
-deny() { echo "${role}: refused — $1" >&2; exit 2; }
-
-case "${SALES_QUALIFICATION_GATE_OFF:-}" in
-  ""|0|false|no|off) ;;
-  *) exit 0 ;;
-esac
+deny() { gate_deny "$role" "$1"; }
 
 [ "$role" = "sales" ] || exit 0
 command -v python3 >/dev/null 2>&1 || deny "qualification-gate.sh requires python3, which is not on PATH; denying rather than guessing."
@@ -72,18 +73,17 @@ QG_PAYLOAD="$payload" QG_ROOT="$root" \
 python3 <<'PY'
 import sys as _fc_sys
 try:
-    import json, os, posixpath, re, sys
+    import importlib.util, json, os, posixpath, re, sys
+
+    _spec = importlib.util.spec_from_file_location("gate_lib", os.environ["GATE_LIB_PY"])
+    gate_lib = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(gate_lib)
 
     def deny(m):
         sys.stderr.write("sales: refused — %s\n" % m); sys.exit(2)
 
     raw = os.environ.get("QG_PAYLOAD", "")
-    try:
-        ev = json.loads(raw) if raw else {}
-    except ValueError:
-        sys.exit(0)
-    if not isinstance(ev, dict):
-        sys.exit(0)
+    ev = gate_lib.gate_parse_json_or_deny(raw, deny)
 
     tool = ev.get("tool_name")
     ti = ev.get("tool_input")
@@ -93,25 +93,17 @@ try:
     root = posixpath.normpath(os.environ["QG_ROOT"].replace("\\", "/"))
     TARGET_RE = re.compile(r'^docs/issue-[0-9]+/reports/sales\.md$')
 
-    def resolve(p):
-        n = p.replace("\\", "/")
-        a = n if posixpath.isabs(n) else posixpath.join(root, n)
-        a = posixpath.normpath(a)
-        try:
-            return posixpath.normpath(os.path.realpath(a).replace("\\", "/"))
-        except OSError:
-            return a
-
     path = ti.get("file_path")
     if not isinstance(path, str) or not path:
         sys.exit(0)
 
-    r = resolve(path)
-    if not r.startswith(root + "/"):
+    rel = gate_lib.gate_normalize_path(root, path)
+    if rel is None:
         sys.exit(0)
-    rel = r[len(root):].lstrip("/")
     if not TARGET_RE.match(rel):
         sys.exit(0)
+
+    r = posixpath.join(root, rel) if rel else root
 
     current = None
     if os.path.isfile(r):
@@ -121,31 +113,8 @@ try:
         except OSError:
             deny("%s exists but cannot be read; failing closed on qualification criteria." % rel)
 
-    new_text = None
-    if tool == "Write":
-        c = ti.get("content")
-        if isinstance(c, str):
-            new_text = c
-    elif tool == "Edit":
-        o, n = ti.get("old_string"), ti.get("new_string")
-        if isinstance(o, str) and isinstance(n, str) and current is not None and o in current:
-            new_text = current.replace(o, n, 1)
-    elif tool == "MultiEdit":
-        edits = ti.get("edits")
-        text = current
-        if isinstance(edits, list) and text is not None:
-            ok = True
-            for e in edits:
-                if not isinstance(e, dict):
-                    ok = False; break
-                o, n = e.get("old_string"), e.get("new_string")
-                if not isinstance(o, str) or not isinstance(n, str) or o not in text:
-                    ok = False; break
-                text = text.replace(o, n, 1)
-            if ok:
-                new_text = text
-
-    if new_text is None:
+    new_text, ok = gate_lib.gate_reconstruct_write(tool, ti, current)
+    if not ok:
         deny(
             "this write targets %s but the gate cannot determine the resulting content "
             "from the tool input (tool=%r). Write the full document with Write, or use an "
@@ -153,22 +122,92 @@ try:
             "checked." % (rel, tool)
         )
 
-    low = new_text.lower()
+    text = new_text
+
+    HEADING_RE = re.compile(r'^(#{1,6})\s')
+    FRAMEWORK_RE = re.compile(r'^\s*[-*]?\s*framework_used\s*[:\-]\s*(.+)\s*$', re.IGNORECASE)
+
+    def find_section(lines):
+        """Return (start_idx, end_idx, framework_value) for the qualification
+        section: from the framework_used-declaring line to the next heading
+        of equal-or-higher level, or EOF. None if not found."""
+        for i, line in enumerate(lines):
+            m = FRAMEWORK_RE.match(line)
+            if m:
+                start_level = None
+                # look backwards for the nearest heading to determine "equal
+                # or higher level" boundary; if none precedes, any heading
+                # ends the section.
+                for j in range(i, -1, -1):
+                    hm = HEADING_RE.match(lines[j])
+                    if hm:
+                        start_level = len(hm.group(1))
+                        break
+                end = len(lines)
+                for k in range(i + 1, len(lines)):
+                    hm = HEADING_RE.match(lines[k])
+                    if hm:
+                        level = len(hm.group(1))
+                        if start_level is None or level <= start_level:
+                            end = k
+                            break
+                return i, end, m.group(1).strip()
+        return None
+
+    lines = text.split("\n")
+    section = find_section(lines)
+
+    TBD_VALUES = {"tbd", "unknown", "blocked", "n/a", "?"}
+    TBD_PREFIXES = ("tbd ", "unknown ", "blocked ")
+
+    def is_tbd(value):
+        v = value.strip().lower()
+        if v in TBD_VALUES:
+            return True
+        return any(v.startswith(p) for p in TBD_PREFIXES)
+
+    def find_field(section_lines, aliases):
+        """Search section_lines for a label-adjacent value for any alias.
+        Returns (found, value_or_None). found True with value None means
+        the label appears with no adjacent value (still counts as
+        omitted, per contract: bare mention doesn't count as present)."""
+        alias_pat = "|".join(re.escape(a) for a in aliases)
+        label_re = re.compile(r'^\s*[-*]?\s*(?:%s)\s*[:\-]\s*(.*)$' % alias_pat, re.IGNORECASE)
+        for idx, line in enumerate(section_lines):
+            m = label_re.match(line)
+            if not m:
+                continue
+            value = m.group(1).strip()
+            if value:
+                return True, value
+            # Label:\nvalue tolerance — look at next non-blank line.
+            for j in range(idx + 1, len(section_lines)):
+                nxt = section_lines[j].strip()
+                if nxt:
+                    if HEADING_RE.match(section_lines[j]):
+                        return True, None
+                    return True, nxt
+                if j - idx > 3:
+                    break
+            return True, None
+        return False, None
+
+    low = text.lower()
 
     def has_any(*needles):
         return any(nd in low for nd in needles)
 
-    mentions_qual = has_any("qualification criteria", "meddpicc", "bant", "framework_used")
-    if not mentions_qual:
-        sys.exit(0)  # record never documents a qualification-criteria deliverable — out of scope
+    if section is None:
+        sys.exit(0)  # record never declares framework_used — out of scope, not a qualification deliverable
 
     missing = []
-    if "framework_used" not in low:
-        missing.append("framework_used (MEDDPICC | BANT)")
-    elif not has_any("meddpicc", "bant"):
+
+    start, end, framework_value = section
+    section_lines = lines[start:end]
+    if not re.search(r'meddpicc|bant', framework_value, re.IGNORECASE):
         missing.append("framework_used (MEDDPICC | BANT)")
 
-    is_meddpicc = "meddpicc" in low
+    is_meddpicc = bool(re.search(r'meddpicc', framework_value, re.IGNORECASE))
 
     # Full 8-field MEDDPICC check (approval addendum: not just EB/Champion).
     MEDDPICC_FIELDS = [
@@ -181,9 +220,13 @@ try:
         ("champion", ["champion"]),
         ("competition", ["competition"]),
     ]
+
+    field_values = {}
     if is_meddpicc:
-        for field_name, needles in MEDDPICC_FIELDS:
-            if not has_any(*needles):
+        for field_name, aliases in MEDDPICC_FIELDS:
+            found, value = find_field(section_lines, aliases)
+            field_values[field_name] = value
+            if not found or value is None:
                 missing.append("%s (MEDDPICC field is silently omitted; requires a value or explicit unknown/blocked marker)" % field_name)
 
     # Advancement-past-initial-qualification check: EB + Champion must be named, not TBD.
@@ -192,8 +235,10 @@ try:
         "advanced to", "advancement claimed",
     )
     if advanced:
-        eb_tbd = has_any("economic buyer: tbd", "economic_buyer: tbd", "economic buyer: unknown", "economic_buyer: unknown") or not has_any("economic buyer", "economic_buyer")
-        champ_tbd = has_any("champion: tbd", "champion: unknown") or "champion" not in low
+        found_eb, eb_val = find_field(section_lines, ["economic buyer", "economic_buyer"])
+        found_champ, champ_val = find_field(section_lines, ["champion"])
+        eb_tbd = (not found_eb) or eb_val is None or is_tbd(eb_val)
+        champ_tbd = (not found_champ) or champ_val is None or is_tbd(champ_val)
         if eb_tbd:
             missing.append("economic_buyer (must be a named individual/role, not TBD, before advancement)")
         if champ_tbd:
@@ -208,6 +253,8 @@ try:
         )
 
     sys.exit(0)
+except SystemExit:
+    raise
 except Exception as _fc_e:
     _fc_sys.stderr.write("qualification-gate.sh: fail-closed: internal error: %r\n" % (_fc_e,))
     _fc_sys.exit(2)
