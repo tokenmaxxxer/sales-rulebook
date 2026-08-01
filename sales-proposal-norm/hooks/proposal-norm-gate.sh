@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-. "${CLAUDE_PLUGIN_ROOT_CORE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../core" && pwd -P)}/hooks/lib/gate-lib.sh"
+. "${CLAUDE_PLUGIN_ROOT_CORE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../core" && pwd -P)}/hooks/lib/gate-lib.sh" || { echo "proposal-norm-gate.sh: cannot source gate-lib.sh" >&2; exit 2; }
 gate_trap_fail_closed
 set -uo pipefail
 gate_kill_switch_active "${SALES_PROPOSAL_NORM_GATE_OFF:-}" || { trap - EXIT; gate_allow; }
@@ -78,15 +78,28 @@ try:
 
     tool = ev.get("tool_name")
     ti = ev.get("tool_input")
-    if not isinstance(ti, dict) or tool not in ("Write", "Edit", "MultiEdit"):
+    if not isinstance(ti, dict) or tool not in ("Write", "Edit", "MultiEdit", "Bash"):
         sys.exit(0)
 
     root = posixpath.normpath(os.environ["PN_ROOT"].replace("\\", "/"))
     TARGET_RE = re.compile(r'^docs/issue-[0-9]+/proposals/.*sales.*\.md$', re.I)
 
-    path = ti.get("file_path")
-    if not isinstance(path, str) or not path:
-        sys.exit(0)
+    if tool == "Bash":
+        cmd = ti.get("command")
+        if not isinstance(cmd, str) or not cmd:
+            sys.exit(0)
+        path = None
+        for tok in gate_lib.gate_bash_write_targets(cmd):
+            rel_tok = gate_lib.gate_normalize_path(root, tok)
+            if rel_tok is not None and TARGET_RE.match(rel_tok):
+                path = tok
+                break
+        if path is None:
+            sys.exit(0)
+    else:
+        path = ti.get("file_path")
+        if not isinstance(path, str) or not path:
+            sys.exit(0)
 
     rel = gate_lib.gate_normalize_path(root, path)
     if rel is None or not TARGET_RE.match(rel):

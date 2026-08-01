@@ -201,5 +201,32 @@ Sourced from Y.
 Will touch Z.'
 run deny empty-status-value-denies "docs/issue-10/proposals/sales-thing.md" "$EMPTY_STATUS"
 
+# missing-core: CLAUDE_PLUGIN_ROOT_CORE pointed nowhere must deny, not allow
+td="$(mktemp -d)"
+out="$(printf '{"tool_name":"Write","tool_input":{"file_path":"docs/issue-1/proposals/x-sales.md","content":"x"}}' \
+    | env CLAUDE_ROLE=sales CLAUDE_PROJECT_DIR="$td" \
+      CLAUDE_PLUGIN_ROOT_CORE="$td/no-such-core" \
+      /bin/bash "$GATE" 2>&1)"
+rc=$?
+got=$([ $rc = 0 ] && echo allow || { [ $rc = 2 ] && echo deny || echo "exit-$rc"; })
+report deny "$got" \
+  "proposal-norm-gate.sh: CLAUDE_PLUGIN_ROOT_CORE pointed nowhere denies (not silent-allow)"
+rm -rf "$td"
+
+# Bash-tool coverage: in-scope path via Bash command denies (cannot
+# content-reconstruct a Bash write), out-of-scope Bash command allows.
+td="$(mktemp -d)"; git init -q "$td"
+bash_payload_in="$(python3 -c 'import json; print(json.dumps({"tool_name":"Bash","tool_input":{"command":"cat > docs/issue-10/proposals/sales-thing.md <<EOF\nx\nEOF"}}))')"
+out="$(env CLAUDE_PROJECT_DIR="$td" CLAUDE_ROLE=sales TG_PAYLOAD="$bash_payload_in" bash -c 'printf "%s" "$TG_PAYLOAD" | "$0"' "$GATE" 2>&1)"
+rc=$?
+case "$rc" in 0) got=allow ;; 2) got=deny ;; *) got="exit-$rc" ;; esac
+report deny "$got" "proposal-norm-gate.sh: Bash write to in-scope path denies (cannot content-reconstruct)"
+bash_payload_out="$(python3 -c 'import json; print(json.dumps({"tool_name":"Bash","tool_input":{"command":"cat > docs/issue-10/reports/coding.md <<EOF\nx\nEOF"}}))')"
+out="$(env CLAUDE_PROJECT_DIR="$td" CLAUDE_ROLE=sales TG_PAYLOAD="$bash_payload_out" bash -c 'printf "%s" "$TG_PAYLOAD" | "$0"' "$GATE" 2>&1)"
+rc=$?
+case "$rc" in 0) got=allow ;; 2) got=deny ;; *) got="exit-$rc" ;; esac
+report allow "$got" "proposal-norm-gate.sh: Bash write to out-of-scope path allows"
+rm -rf "$td"
+
 printf '\n== %d passed, %d failed ==\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
