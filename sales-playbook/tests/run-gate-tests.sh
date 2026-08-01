@@ -283,6 +283,50 @@ Conversion rate and cycle length tracked here.
 run_case "allow: marketing keyword outside scoped sections does not trigger boundary deny" 0 \
   "$(json_write_payload "docs/issue-10/reports/sales.md" "$SCOPE_SAFE_CONTENT")"
 
+# 14. missing-core: CLAUDE_PLUGIN_ROOT_CORE pointed nowhere must deny, not allow
+td="$(mktemp -d)"
+out="$(printf '{"tool_name":"Write","tool_input":{"file_path":"docs/issue-1/reports/sales.md","content":"x"}}' \
+    | env CLAUDE_ROLE=sales CLAUDE_PROJECT_DIR="$td" \
+      CLAUDE_PLUGIN_ROOT_CORE="$td/no-such-core" \
+      /bin/bash "$GATE" 2>&1)"
+rc=$?
+if [ "$rc" -eq 2 ]; then
+  echo "PASS: playbook-gate.sh: CLAUDE_PLUGIN_ROOT_CORE pointed nowhere denies (not silent-allow)"
+  pass=$((pass+1))
+else
+  echo "FAIL: playbook-gate.sh: CLAUDE_PLUGIN_ROOT_CORE pointed nowhere denies (not silent-allow) (expected rc=2, got rc=$rc)"
+  echo "  output: $out"
+  fail=$((fail+1))
+fi
+rm -rf "$td"
+
+# 15. Bash-tool coverage: in-scope path via Bash command denies (cannot
+# content-reconstruct a Bash write), out-of-scope Bash command allows.
+td="$(mktemp -d)"; git init -q "$td"
+bash_payload_in="$(python3 -c 'import json; print(json.dumps({"tool_name":"Bash","tool_input":{"command":"cat > docs/issue-10/reports/sales.md <<EOF\nx\nEOF"}}))')"
+out="$(env CLAUDE_PROJECT_DIR="$td" CLAUDE_ROLE=sales TG_PAYLOAD="$bash_payload_in" bash -c 'printf "%s" "$TG_PAYLOAD" | "$0"' "$GATE" 2>&1)"
+rc=$?
+if [ "$rc" -eq 2 ]; then
+  echo "PASS: playbook-gate.sh: Bash write to in-scope path denies (cannot content-reconstruct)"
+  pass=$((pass+1))
+else
+  echo "FAIL: playbook-gate.sh: Bash write to in-scope path denies (cannot content-reconstruct) (expected rc=2, got rc=$rc)"
+  echo "  output: $out"
+  fail=$((fail+1))
+fi
+bash_payload_out="$(python3 -c 'import json; print(json.dumps({"tool_name":"Bash","tool_input":{"command":"cat > docs/issue-10/proposals/sales-thing.md <<EOF\nx\nEOF"}}))')"
+out="$(env CLAUDE_PROJECT_DIR="$td" CLAUDE_ROLE=sales TG_PAYLOAD="$bash_payload_out" bash -c 'printf "%s" "$TG_PAYLOAD" | "$0"' "$GATE" 2>&1)"
+rc=$?
+if [ "$rc" -eq 0 ]; then
+  echo "PASS: playbook-gate.sh: Bash write to out-of-scope path allows"
+  pass=$((pass+1))
+else
+  echo "FAIL: playbook-gate.sh: Bash write to out-of-scope path allows (expected rc=0, got rc=$rc)"
+  echo "  output: $out"
+  fail=$((fail+1))
+fi
+rm -rf "$td"
+
 echo
 echo "----------------------------------------"
 echo "Passed: $pass, Failed: $fail"
