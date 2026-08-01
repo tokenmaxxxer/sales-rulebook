@@ -1,31 +1,29 @@
 #!/usr/bin/env bash
-__fc(){ rc=$?; if [ "$rc" != 0 ] && [ "$rc" != 2 ]; then echo "fail-closed: gate aborted (rc=$rc)" >&2; exit 2; fi; }
-trap __fc EXIT
+. "${CLAUDE_PLUGIN_ROOT_CORE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../core" && pwd -P)}/hooks/lib/gate-lib.sh"
+gate_trap_fail_closed
+set -uo pipefail
+gate_kill_switch_active "${SALES_PROPOSAL_NORM_GATE_OFF:-}" || { trap - EXIT; gate_allow; }
 # PreToolUse gate (Write|Edit|MultiEdit) — enforces the sales role's phase-1
 # proposal norm (docs/issue-1/proposals/methodology-norms.md (a)) on any
 # write to docs/issue-<n>/proposals/*sales*.md. On top of (never instead of)
 # core canon's generic record-fields-gate.sh.
 #
-# Requires six sections present (case-insensitive heading/keyword scan):
+# Requires six sections present, as markdown headings/labels, in order:
 # status banner, scope, guiding principle, per-item breakdown, adoption
 # rationale, plugin-reflection plan.
 #
-# Kill switch: export SALES_PROPOSAL_NORM_GATE_OFF=1
-set -uo pipefail
+# Kill switch: export SALES_PROPOSAL_NORM_GATE_OFF=1 (recognized on-spellings
+# only: 1/true/yes/on, case-insensitive; anything else, including an
+# unrecognized typo, keeps the gate ACTIVE).
 
 role="${CLAUDE_ROLE:-sales}"
-deny() { echo "${role}: refused — $1" >&2; exit 2; }
+deny() { gate_deny "$role" "$1"; }
 
-case "${SALES_PROPOSAL_NORM_GATE_OFF:-}" in
-  ""|0|false|no|off) ;;
-  *) exit 0 ;;
-esac
-
-[ "$role" = "sales" ] || exit 0
+[ "$role" = "sales" ] || gate_allow
 command -v python3 >/dev/null 2>&1 || deny "proposal-norm-gate.sh requires python3, which is not on PATH; denying rather than guessing."
 
 payload="$(cat 2>/dev/null || true)"
-[ -n "$payload" ] || exit 0
+[ -n "$payload" ] || gate_allow
 
 _target="$(printf '%s' "$payload" | python3 -c '
 import json,sys
@@ -66,18 +64,17 @@ PN_PAYLOAD="$payload" PN_ROOT="$root" \
 python3 <<'PY'
 import sys as _fc_sys
 try:
-    import json, os, posixpath, re, sys
+    import importlib.util, json, os, posixpath, re, sys
+
+    _spec = importlib.util.spec_from_file_location("gate_lib", os.environ["GATE_LIB_PY"])
+    gate_lib = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(gate_lib)
 
     def deny(m):
         sys.stderr.write("sales: refused — %s\n" % m); sys.exit(2)
 
     raw = os.environ.get("PN_PAYLOAD", "")
-    try:
-        ev = json.loads(raw) if raw else {}
-    except ValueError:
-        sys.exit(0)
-    if not isinstance(ev, dict):
-        sys.exit(0)
+    ev = gate_lib.gate_parse_json_or_deny(raw, deny)
 
     tool = ev.get("tool_name")
     ti = ev.get("tool_input")
@@ -87,25 +84,15 @@ try:
     root = posixpath.normpath(os.environ["PN_ROOT"].replace("\\", "/"))
     TARGET_RE = re.compile(r'^docs/issue-[0-9]+/proposals/.*sales.*\.md$', re.I)
 
-    def resolve(p):
-        n = p.replace("\\", "/")
-        a = n if posixpath.isabs(n) else posixpath.join(root, n)
-        a = posixpath.normpath(a)
-        try:
-            return posixpath.normpath(os.path.realpath(a).replace("\\", "/"))
-        except OSError:
-            return a
-
     path = ti.get("file_path")
     if not isinstance(path, str) or not path:
         sys.exit(0)
 
-    r = resolve(path)
-    if not r.startswith(root + "/"):
+    rel = gate_lib.gate_normalize_path(root, path)
+    if rel is None or not TARGET_RE.match(rel):
         sys.exit(0)
-    rel = r[len(root):].lstrip("/")
-    if not TARGET_RE.match(rel):
-        sys.exit(0)
+
+    r = posixpath.join(root, rel)
 
     current = None
     if os.path.isfile(r):
@@ -115,31 +102,8 @@ try:
         except OSError:
             deny("%s exists but cannot be read; failing closed on the proposal norm." % rel)
 
-    new_text = None
-    if tool == "Write":
-        c = ti.get("content")
-        if isinstance(c, str):
-            new_text = c
-    elif tool == "Edit":
-        o, n = ti.get("old_string"), ti.get("new_string")
-        if isinstance(o, str) and isinstance(n, str) and current is not None and o in current:
-            new_text = current.replace(o, n, 1)
-    elif tool == "MultiEdit":
-        edits = ti.get("edits")
-        text = current
-        if isinstance(edits, list) and text is not None:
-            ok = True
-            for e in edits:
-                if not isinstance(e, dict):
-                    ok = False; break
-                o, n = e.get("old_string"), e.get("new_string")
-                if not isinstance(o, str) or not isinstance(n, str) or o not in text:
-                    ok = False; break
-                text = text.replace(o, n, 1)
-            if ok:
-                new_text = text
-
-    if new_text is None:
+    new_text, ok = gate_lib.gate_reconstruct_write(tool, ti, current)
+    if not ok:
         deny(
             "this write targets %s but the gate cannot determine the resulting content "
             "from the tool input (tool=%r). Write the full document with Write, or use an "
@@ -147,24 +111,79 @@ try:
             "checked." % (rel, tool)
         )
 
-    low = new_text.lower()
+    # --- section-scoped, structure-based semantic check ---
+    #
+    # Required sections, in order, each identified by a markdown heading
+    # line (any level, `^#{1,6}\s+...`) or, for the status banner only (it
+    # is a label:value line at the top of the document rather than a
+    # heading), a label-adjacent-value line. A section name mentioned only
+    # in unrelated prose (not as an actual heading) does not count.
+    SECTIONS = [
+        ("status-banner", None),  # handled specially below (label:value)
+        ("scope", [r"scope"]),
+        ("guiding-principle", [r"guiding\s+principle"]),
+        ("per-item-breakdown", [
+            r"per[\s-]item\s+breakdown",
+            r"mandatory\s+plugin\s+list",
+            r"per[\s-]plugin\s+breakdown",
+        ]),
+        ("adoption-rationale", [r"adoption\s+rationale"]),
+        ("plugin-reflection-plan", [r"plugin[\s-]reflection\s+plan"]),
+    ]
 
-    def has_any(*needles):
-        return any(nd in low for nd in needles)
+    lines = new_text.splitlines()
+    HEADING_RE = re.compile(r'^\s{0,3}#{1,6}\s+(.*?)\s*$')
 
+    # status banner: a "Status:" label with a non-empty value, tolerating
+    # the value on the very next non-blank line.
+    STATUS_LABEL_RE = re.compile(r'^\s*[-*]?\s*status\s*[:\-]\s*(.*)$', re.I)
+
+    def find_status_banner():
+        for i, ln in enumerate(lines):
+            m = STATUS_LABEL_RE.match(ln)
+            if not m:
+                continue
+            val = m.group(1).strip()
+            if val:
+                return i
+            # value on next non-blank line, unless that line is itself a
+            # heading (a heading can never serve as a label's value)
+            for j in range(i + 1, min(i + 4, len(lines))):
+                nxt = lines[j].strip()
+                if nxt:
+                    return i if not HEADING_RE.match(lines[j]) else None
+            return None
+        return None
+
+    # collect heading positions (line index -> normalized heading text)
+    headings = []
+    for i, ln in enumerate(lines):
+        m = HEADING_RE.match(ln)
+        if m:
+            headings.append((i, m.group(1).strip().lower()))
+
+    def find_heading(patterns):
+        for i, text in headings:
+            for pat in patterns:
+                if re.search(pat, text, re.I):
+                    return i
+        return None
+
+    positions = {}
     missing = []
-    if not has_any("status:", "phase-1-only", "phase 1 only", "phase-1 only"):
+
+    status_pos = find_status_banner()
+    if status_pos is None:
         missing.append("status-banner")
-    if not has_any("scope", "scoped against"):
-        missing.append("scope")
-    if not has_any("guiding principle"):
-        missing.append("guiding-principle")
-    if not has_any("per-item breakdown", "per item breakdown", "mandatory plugin list", "per-plugin breakdown"):
-        missing.append("per-item-breakdown")
-    if not has_any("adoption rationale"):
-        missing.append("adoption-rationale")
-    if not has_any("plugin-reflection plan", "plugin reflection plan"):
-        missing.append("plugin-reflection-plan")
+    else:
+        positions["status-banner"] = status_pos
+
+    for name, patterns in SECTIONS[1:]:
+        pos = find_heading(patterns)
+        if pos is None:
+            missing.append(name)
+        else:
+            positions[name] = pos
 
     if missing:
         deny(
@@ -172,6 +191,16 @@ try:
             "docs/issue-1/proposals/methodology-norms.md (a), a sales phase-1 proposal "
             "needs all six sections, in order: status banner, scope, guiding principle, "
             "per-item breakdown, adoption rationale, plugin-reflection plan." % ", ".join(missing)
+        )
+
+    # order check: positions must be non-decreasing in the required order
+    order = [name for name, _ in SECTIONS]
+    ordered_positions = [positions[name] for name in order]
+    if ordered_positions != sorted(ordered_positions):
+        deny(
+            "phase-1 sales proposal's sections are present but out of order. Required "
+            "order: status banner, scope, guiding principle, per-item breakdown, "
+            "adoption rationale, plugin-reflection plan."
         )
 
     sys.exit(0)
