@@ -1,6 +1,16 @@
 # sales-qualification-meddpicc
 
-Enforces the sales role's qualification-criteria methodology (docs/issue-1/proposals/methodology-norms.md (b) Qualification criteria): MEDDPICC is the default framework and **all 8 fields** (Metrics, Economic Buyer, Decision Criteria, Decision Process, Paper Process, Identify Pain, Champion, Competition) must be present with a value or an explicit unknown/blocked marker — no field may be silently omitted, per the phase-2 approval comment ("phase 2 반영: EB/Champion 외 MEDDPICC 전 필드 검사 추가"). BANT is accepted as a named fallback for short-cycle/simple deals. Economic Buyer and Champion must additionally be named individuals (not TBD) before an opportunity advances past initial qualification.
+Enforces the sales role's qualification-criteria methodology (docs/issue-1/proposals/methodology-norms.md (b) Qualification criteria), aligned to `roles/specs/sales.spec.json`'s 9-field MEDDPICC set (issue-22 spec-alignment): MEDDPICC is the default framework and **7 required fields** (Metrics, Economic Buyer, Decision Criteria, Decision Process, Identify Pain, Champion, and the spec's 9th field **Verdict**) must be present with a value or an explicit unknown/blocked marker — no required field may be silently omitted, per the phase-2 approval comment ("phase 2 반영: EB/Champion 외 MEDDPICC 전 필드 검사 추가") plus the issue-22 addendum adding `verdict`. **2 optional fields** (Paper Process, Competition — spec `required: false`) may be omitted entirely, but if either is declared it must still carry a value or explicit unknown/blocked/not-applicable marker rather than a bare label. BANT is accepted as a named fallback for short-cycle/simple deals. Economic Buyer and Champion must additionally be named individuals (not TBD) before an opportunity advances past initial qualification.
+
+`Verdict` here is checked only for presence (a value or explicit
+unknown/blocked marker), same as the other required fields — **not** the
+spec's `recomputation` rule (verdict as a derived worst-case-completeness
+value across the 8 substantive fields), which the spec itself marks
+TBD/out-of-scope (issue-521 follow-up). The spec's `reference_resolution`
+rule (economic_buyer/champion resolving to a named contact record) is
+likewise named here but enforced by an external `role-spec-reference-guard.sh`
+hook not present in this repo — this gate only checks that the fields carry
+a value, not that the value resolves to a reference.
 
 ## Gate mechanics (issue-13 phase 2)
 

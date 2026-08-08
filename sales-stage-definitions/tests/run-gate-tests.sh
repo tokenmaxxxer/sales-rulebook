@@ -305,6 +305,24 @@ run_case "deny: structure-scoping — stage keywords only in unrelated prose, no
 run_case "allow: adjacency-tolerant handoff label/value split across lines" 0 \
   "$(json_write docs/issue-10/reports/sales.md "$ADJACENCY_CONTENT")"
 
+# --- issue-22 spec-alignment: Deal state loop_state vocabulary. ---
+for word in qualifying negotiating landed economic-buyer-undeclared deal-unreachable; do
+  run_case "allow: Deal state: $word (spec vocab word)" 0 \
+    "$(json_write docs/issue-10/reports/sales.md "$GOOD_CONTENT
+
+Deal state: $word
+")"
+done
+
+run_case "deny: Deal state: stale/unlisted word" 2 \
+  "$(json_write docs/issue-10/reports/sales.md "$GOOD_CONTENT
+
+Deal state: closed-won
+")"
+
+run_case "allow: no Deal state label declared at all" 0 \
+  "$(json_write docs/issue-10/reports/sales.md "$GOOD_CONTENT")"
+
 # --- Edit case: seed an on-disk passing doc, then Edit a bad detail into
 # a still-passing doc via old_string/new_string. ---
 mkdir -p "$WORKDIR/docs/issue-11/reports"

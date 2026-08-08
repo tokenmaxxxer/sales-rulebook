@@ -49,6 +49,23 @@ the form `## Stage N: <name>`, then:
 Malformed or non-object JSON in the tool-call payload is denied (rc=2)
 rather than silently passed through.
 
+## Deal state vocabulary (issue-22 spec-alignment)
+
+An optional, document-scoped `Deal state: <value>` label (label-adjacent-
+value-capture, same style as `Next-stage handoff:`) declares the deal's
+current MEDDPICC loop_state. If present, its value must be one of the 5
+words `roles/specs/sales.spec.json` defines: `qualifying`, `negotiating`,
+`landed`, `economic-buyer-undeclared`, `deal-unreachable` — no stale or
+extra word accepted. The label is optional; a record with no `Deal state:`
+line is unaffected by this check.
+
+This is a **distinct concept** from core's report-frontmatter `loop_state`
+field present on every `docs/issue-<n>/reports/sales.md` (a record-workflow
+delivery state like `landed`/`open`/`cleared`, mechanically checked against
+a different, contract-owned terminal-state list). The two fields share a
+name by coincidence only — `Deal state:` here never touches or is checked
+against the frontmatter `loop_state:` key.
+
 ## Kill switch
 
 `SALES_STAGE_DEFINITIONS_GATE_OFF` disables the gate only for a

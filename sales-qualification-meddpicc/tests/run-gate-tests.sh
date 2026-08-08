@@ -39,11 +39,17 @@ run_case() {
   rm -rf "$repo"
 }
 
-MEDDPICC_COMPLETE='# Sales Report\n\nframework_used: MEDDPICC\n\nMetrics: 20% cost reduction target\nEconomic Buyer: Jane Doe, VP Finance\nDecision Criteria: TCO and integration ease\nDecision Process: Committee review then CFO sign-off\nPaper Process: Legal review 2 weeks, procurement PO\nIdentify Pain: Manual reconciliation takes 40 hours/month\nChampion: Bob Smith, Ops Director\nCompetition: Incumbent vendor Acme Corp\n'
+MEDDPICC_COMPLETE='# Sales Report\n\nframework_used: MEDDPICC\n\nMetrics: 20% cost reduction target\nEconomic Buyer: Jane Doe, VP Finance\nDecision Criteria: TCO and integration ease\nDecision Process: Committee review then CFO sign-off\nPaper Process: Legal review 2 weeks, procurement PO\nIdentify Pain: Manual reconciliation takes 40 hours/month\nChampion: Bob Smith, Ops Director\nCompetition: Incumbent vendor Acme Corp\nVerdict: qualified\n'
 
-MEDDPICC_MISSING_PAPER='# Sales Report\n\nframework_used: MEDDPICC\n\nMetrics: 20% cost reduction target\nEconomic Buyer: Jane Doe, VP Finance\nDecision Criteria: TCO and integration ease\nDecision Process: Committee review then CFO sign-off\nIdentify Pain: Manual reconciliation takes 40 hours/month\nChampion: Bob Smith, Ops Director\nCompetition: Incumbent vendor Acme Corp\n'
+MEDDPICC_MISSING_PAPER='# Sales Report\n\nframework_used: MEDDPICC\n\nMetrics: 20% cost reduction target\nEconomic Buyer: Jane Doe, VP Finance\nDecision Criteria: TCO and integration ease\nDecision Process: Committee review then CFO sign-off\nIdentify Pain: Manual reconciliation takes 40 hours/month\nChampion: Bob Smith, Ops Director\nCompetition: Incumbent vendor Acme Corp\nVerdict: qualified\n'
 
-MEDDPICC_ADVANCED_TBD_EB='# Sales Report\n\nframework_used: MEDDPICC\n\nMetrics: reduce cost\nEconomic Buyer: TBD\nDecision Criteria: unknown\nDecision Process: unknown\nPaper Process: unknown\nIdentify Pain: unknown\nChampion: Bob Smith\nCompetition: unknown\n\nThis opportunity has advanced past initial qualification.\n'
+MEDDPICC_ADVANCED_TBD_EB='# Sales Report\n\nframework_used: MEDDPICC\n\nMetrics: reduce cost\nEconomic Buyer: TBD\nDecision Criteria: unknown\nDecision Process: unknown\nPaper Process: unknown\nIdentify Pain: unknown\nChampion: Bob Smith\nCompetition: unknown\nVerdict: unknown\n\nThis opportunity has advanced past initial qualification.\n'
+
+MEDDPICC_MISSING_VERDICT='# Sales Report\n\nframework_used: MEDDPICC\n\nMetrics: 20% cost reduction target\nEconomic Buyer: Jane Doe, VP Finance\nDecision Criteria: TCO and integration ease\nDecision Process: Committee review then CFO sign-off\nPaper Process: Legal review 2 weeks, procurement PO\nIdentify Pain: Manual reconciliation takes 40 hours/month\nChampion: Bob Smith, Ops Director\nCompetition: Incumbent vendor Acme Corp\n'
+
+MEDDPICC_OPTIONAL_OMITTED='# Sales Report\n\nframework_used: MEDDPICC\n\nMetrics: 20% cost reduction target\nEconomic Buyer: Jane Doe, VP Finance\nDecision Criteria: TCO and integration ease\nDecision Process: Committee review then CFO sign-off\nIdentify Pain: Manual reconciliation takes 40 hours/month\nChampion: Bob Smith, Ops Director\nVerdict: qualified\n'
+
+MEDDPICC_OPTIONAL_LABEL_NO_VALUE='# Sales Report\n\nframework_used: MEDDPICC\n\nMetrics: 20% cost reduction target\nEconomic Buyer: Jane Doe, VP Finance\nDecision Criteria: TCO and integration ease\nDecision Process: Committee review then CFO sign-off\nIdentify Pain: Manual reconciliation takes 40 hours/month\nChampion: Bob Smith, Ops Director\nVerdict: qualified\nCompetition:\n'
 
 BANT_RECORD='# Sales Report\n\nframework_used: BANT\n\nBudget: 50000 approved\nAuthority: CFO signs off\nNeed: reduce manual work\nTiming: Q3 close target\n'
 
@@ -55,9 +61,22 @@ run_case "allow: complete MEDDPICC record" 0 "$p1"
 p2='{"tool_name":"Write","tool_input":{"file_path":"__ROOT__/docs/issue-10/reports/sales.md","content":"'"$MEDDPICC_ADVANCED_TBD_EB"'"}}'
 run_case "deny: advancement with TBD Economic Buyer" 2 "$p2"
 
-# 3. deny: MEDDPICC with Paper Process silently omitted
+# 3. allow: MEDDPICC with optional Paper Process omitted entirely (issue-22:
+#    paper_process/competition relaxed to optional per spec required:false)
 p3='{"tool_name":"Write","tool_input":{"file_path":"__ROOT__/docs/issue-10/reports/sales.md","content":"'"$MEDDPICC_MISSING_PAPER"'"}}'
-run_case "deny: MEDDPICC missing Paper Process field" 2 "$p3"
+run_case "allow: MEDDPICC with optional Paper Process omitted entirely" 0 "$p3"
+
+# 3b. deny: MEDDPICC missing the required verdict field (issue-22 9th field)
+p3b='{"tool_name":"Write","tool_input":{"file_path":"__ROOT__/docs/issue-10/reports/sales.md","content":"'"$MEDDPICC_MISSING_VERDICT"'"}}'
+run_case "deny: MEDDPICC missing required verdict field" 2 "$p3b"
+
+# 3c. allow: both optional fields (Paper Process, Competition) omitted entirely
+p3c='{"tool_name":"Write","tool_input":{"file_path":"__ROOT__/docs/issue-10/reports/sales.md","content":"'"$MEDDPICC_OPTIONAL_OMITTED"'"}}'
+run_case "allow: both optional fields omitted entirely" 0 "$p3c"
+
+# 3d. deny: optional field declared (label present) but no value captured
+p3d='{"tool_name":"Write","tool_input":{"file_path":"__ROOT__/docs/issue-10/reports/sales.md","content":"'"$MEDDPICC_OPTIONAL_LABEL_NO_VALUE"'"}}'
+run_case "deny: optional field declared with label but no captured value" 2 "$p3d"
 
 # 4. allow: BANT record, no MEDDPICC-only fields required
 p4='{"tool_name":"Write","tool_input":{"file_path":"__ROOT__/docs/issue-10/reports/sales.md","content":"'"$BANT_RECORD"'"}}'
@@ -106,7 +125,7 @@ rm -rf "$multi_repo"
 # 9. replace_all:true case — old_string occurs 2+ times, asserting every
 #    occurrence is replaced before the check runs.
 ra_repo="$(setup_repo)"
-RA_DOC='# Sales Report\n\nframework_used: MEDDPICC\n\nMetrics: XXX\nEconomic Buyer: XXX\nDecision Criteria: XXX\nDecision Process: XXX\nPaper Process: XXX\nIdentify Pain: XXX\nChampion: XXX\nCompetition: XXX\n'
+RA_DOC='# Sales Report\n\nframework_used: MEDDPICC\n\nMetrics: XXX\nEconomic Buyer: XXX\nDecision Criteria: XXX\nDecision Process: XXX\nPaper Process: XXX\nIdentify Pain: XXX\nChampion: XXX\nCompetition: XXX\nVerdict: XXX\n'
 printf '%b' "$RA_DOC" > "$ra_repo/docs/issue-10/reports/sales.md"
 p9='{"tool_name":"Edit","tool_input":{"file_path":"__ROOT__/docs/issue-10/reports/sales.md","old_string":"XXX","new_string":"value provided here","replace_all":true}}'
 actual_p9="${p9//__ROOT__/$ra_repo}"
@@ -128,7 +147,7 @@ p10b='["Write", {"file_path":"x"}]'
 run_case "deny: valid-JSON-but-non-object payload (bare array)" 2 "$p10b"
 
 # 11. Kill-switch unrecognized-value case — gate must stay ACTIVE (not bypassed).
-p11='{"tool_name":"Write","tool_input":{"file_path":"__ROOT__/docs/issue-10/reports/sales.md","content":"'"$MEDDPICC_MISSING_PAPER"'"}}'
+p11='{"tool_name":"Write","tool_input":{"file_path":"__ROOT__/docs/issue-10/reports/sales.md","content":"'"$MEDDPICC_MISSING_VERDICT"'"}}'
 run_case "deny: kill switch unrecognized value stays active (=typo)" 2 "$p11" "SALES_QUALIFICATION_GATE_OFF=typo"
 
 # 12. Absolute-path case — file_path given as an absolute path, resolved
@@ -147,7 +166,7 @@ rm -rf "$abs_repo"
 # 13. Single-quote-in-payload case — a fixture whose field value contains a
 #     literal ' — asserting the harness itself survives (regression test
 #     for the harness fix).
-SQ_DOC="# Sales Report\n\nframework_used: MEDDPICC\n\nMetrics: 20% cost reduction target\nEconomic Buyer: Jane Doe, VP Finance\nDecision Criteria: TCO and integration ease\nDecision Process: Committee review then CFO sign-off\nPaper Process: Legal review 2 weeks, procurement PO\nIdentify Pain: Manual reconciliation takes 40 hours/month\nChampion: Bob's team lead\nCompetition: Incumbent vendor Acme Corp\n"
+SQ_DOC="# Sales Report\n\nframework_used: MEDDPICC\n\nMetrics: 20% cost reduction target\nEconomic Buyer: Jane Doe, VP Finance\nDecision Criteria: TCO and integration ease\nDecision Process: Committee review then CFO sign-off\nPaper Process: Legal review 2 weeks, procurement PO\nIdentify Pain: Manual reconciliation takes 40 hours/month\nChampion: Bob's team lead\nCompetition: Incumbent vendor Acme Corp\nVerdict: qualified\n"
 p13='{"tool_name":"Write","tool_input":{"file_path":"__ROOT__/docs/issue-10/reports/sales.md","content":"'"$SQ_DOC"'"}}'
 run_case "allow: single-quote-in-payload (Bob's team lead) survives harness" 0 "$p13"
 

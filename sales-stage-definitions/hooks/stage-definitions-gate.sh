@@ -13,6 +13,14 @@ gate_kill_switch_active "${SALES_STAGE_DEFINITIONS_GATE_OFF:-}" || { trap - EXIT
 # and a named next-stage handoff (label-adjacent-value-capture, not
 # substring presence anywhere in the doc).
 #
+# issue-22 spec-alignment: when a `Deal state: <value>` label is declared
+# anywhere in the document (label-adjacent-value-capture, distinct from
+# core's unrelated report-frontmatter `loop_state` field), its value must
+# be one of the spec's 5-word MEDDPICC loop_state vocabulary
+# (roles/specs/sales.spec.json): qualifying, negotiating, landed,
+# economic-buyer-undeclared, deal-unreachable. The label is optional — a
+# stage-definitions record with no `Deal state:` label is unaffected.
+#
 # Kill switch: export SALES_STAGE_DEFINITIONS_GATE_OFF=1 (unrecognized
 # values stay ACTIVE; only recognized on-spellings 1/true/yes/on disable).
 
@@ -248,6 +256,26 @@ try:
             "stages, >=2 falsifiable past-tense exit criteria per stage, named "
             "next-stage handoff." % "; ".join(problems)
         )
+
+    # ---- issue-22 spec-alignment: MEDDPICC deal-state loop_state vocab ----
+    # Optional `Deal state: <value>` label, document-scoped (not tied to any
+    # one stage section) — a distinct concept from core's report-frontmatter
+    # `loop_state` field despite the shared word; see README/directive.sh.
+    DEAL_STATE_WORDS = {
+        "qualifying", "negotiating", "landed",
+        "economic-buyer-undeclared", "deal-unreachable",
+    }
+    deal_state_val = capture_label_value(new_text, r'deal\s*state')
+    if deal_state_val is not None:
+        dv = deal_state_val.strip().lower().strip("*_ ")
+        if dv not in DEAL_STATE_WORDS:
+            deny(
+                "Deal state: %r is not one of the spec's 5-word MEDDPICC "
+                "loop_state vocabulary (roles/specs/sales.spec.json): %s. "
+                "Distinct from core's report-frontmatter loop_state field — "
+                "see docs/handbooks/methodology-plugin-gates.md."
+                % (deal_state_val, ", ".join(sorted(DEAL_STATE_WORDS)))
+            )
 
     sys.exit(0)
 except SystemExit:

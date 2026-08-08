@@ -39,15 +39,17 @@ core denies instead of silently running no `gate_*` definitions.
 - `qualification-gate.sh` — targets `docs/issue-<n>/reports/sales.md`;
   scopes its check to the section from the `framework_used:` declaring
   line to the next heading of equal-or-higher level. Under
-  `framework_used: MEDDPICC`, checks all 8 fields individually (not just
-  Economic Buyer/Champion — added per the issue #10 approval comment
-  "EB/Champion 외 MEDDPICC 전 필드 검사 추가") and separately requires
-  named Economic Buyer/Champion before advancement past initial
+  `framework_used: MEDDPICC`, checks 7 required fields individually (not
+  just Economic Buyer/Champion — added per the issue #10 approval comment
+  "EB/Champion 외 MEDDPICC 전 필드 검사 추가") plus 2 optional fields
+  (present-or-absent, but not label-only if declared), and separately
+  requires named Economic Buyer/Champion before advancement past initial
   qualification. Kill switch `SALES_QUALIFICATION_GATE_OFF=1`.
 - `stage-definitions-gate.sh` — targets the same record path; requires
   `stage_count` in [5,7] via actual detected stage headings, and
   `>=2` exit criteria plus a named next-stage handoff per stage, scoped
-  to that stage's own section body. Kill switch
+  to that stage's own section body; an optional `Deal state:` label, if
+  declared, must be one of a fixed 5-word vocabulary. Kill switch
   `SALES_STAGE_DEFINITIONS_GATE_OFF=1`.
 - `playbook-gate.sh` — targets the same record path; requires all five
   playbook sections as actual markdown headings, denies inline
@@ -80,6 +82,19 @@ core canon) hard-errors on any `sales(-[a-z]+)*`-shaped token in
 hardcoded list). Wired into `sales/hooks/tests/run-stub-check.sh`
 alongside core's `stub-check.sh`; its own synthetic-fixture test lives at
 `sales/hooks/tests/run-name-consistency-tests.sh`.
+
+Spec alignment (issue-22): `roles/specs/sales.spec.json` (on-the-record,
+MEDDPICC-sourced) is the source of truth for the 9-field MEDDPICC list
+(`qualification-gate.sh`'s `verdict` field, added as the 9th, and the
+`paper_process`/`competition` optionality split) and the 5-word deal-stage
+`loop_state` vocabulary (`stage-definitions-gate.sh`'s optional `Deal
+state:` label). Future edits to either field/vocab set should update the
+spec file and these two gates together. The spec's `verdict.recomputation`
+rule (worst-case-completeness derivation) and `reference_resolution` rule
+(named-contact resolution for economic_buyer/champion) are named in each
+plugin's README but not enforced here — both are spec-marked
+TBD/out-of-scope (issue-521 follow-up) or assigned to an external
+`role-spec-reference-guard.sh` hook not present in this repo.
 
 Known open gap (issue-16): `stage-definitions-gate.sh` has no
 out-of-scope skip, unlike `qualification-gate.sh`'s `framework_used:`
