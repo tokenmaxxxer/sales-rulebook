@@ -10,13 +10,16 @@ gate_kill_switch_active "${SALES_QUALIFICATION_GATE_OFF:-}" || { trap - EXIT; ga
 # generic record-fields-gate.sh.
 #
 # Requires framework_used present with a MEDDPICC or BANT value (not a bare
-# key). Under MEDDPICC, requires all 8 fields (Metrics, Economic Buyer,
-# Decision Criteria, Decision Process, Paper Process, Identify Pain,
-# Champion, Competition) present with a value or an explicit
-# unknown/blocked/TBD marker — no field silently omitted (phase-2 approval
-# addendum: "EB/Champion 외 MEDDPICC 전 필드 검사 추가"). When the record
-# states an opportunity has advanced past initial qualification, requires
-# non-TBD economic_buyer and champion specifically.
+# key). Under MEDDPICC, requires 7 fields (Metrics, Economic Buyer,
+# Decision Criteria, Decision Process, Identify Pain, Champion, verdict)
+# present with a value or an explicit unknown/blocked/TBD marker — no field
+# silently omitted (phase-2 approval addendum: "EB/Champion 외 MEDDPICC 전
+# 필드 검사 추가"; issue-22 spec-alignment: 9th field `verdict` added,
+# `paper_process`/`competition` relaxed to optional per
+# roles/specs/sales.spec.json's `required: false`, still checked when
+# present so a field the record chose to declare cannot be silently TBD).
+# When the record states an opportunity has advanced past initial
+# qualification, requires non-TBD economic_buyer and champion specifically.
 #
 # Semantic checks are section-scoped (from the framework_used declaration
 # to the next heading of equal-or-higher level or EOF) and label-adjacent
@@ -222,25 +225,38 @@ try:
 
     is_meddpicc = bool(re.search(r'meddpicc', framework_value, re.IGNORECASE))
 
-    # Full 8-field MEDDPICC check (approval addendum: not just EB/Champion).
-    MEDDPICC_FIELDS = [
+    # 9-field MEDDPICC check (approval addendum: not just EB/Champion;
+    # issue-22 spec-alignment: `verdict` added as the 9th field, and
+    # `paper_process`/`competition` relaxed to optional per
+    # roles/specs/sales.spec.json `required: false` — they may be absent
+    # entirely, but if the label is declared it must still carry a value
+    # rather than being silently label-only).
+    MEDDPICC_REQUIRED_FIELDS = [
         ("metrics", ["metrics"]),
         ("economic_buyer", ["economic buyer", "economic_buyer"]),
         ("decision_criteria", ["decision criteria", "decision_criteria"]),
         ("decision_process", ["decision process", "decision_process"]),
-        ("paper_process", ["paper process", "paper_process"]),
         ("identify_pain", ["identify pain", "identify_pain"]),
         ("champion", ["champion"]),
+        ("verdict", ["verdict"]),
+    ]
+    MEDDPICC_OPTIONAL_FIELDS = [
+        ("paper_process", ["paper process", "paper_process"]),
         ("competition", ["competition"]),
     ]
 
     field_values = {}
     if is_meddpicc:
-        for field_name, aliases in MEDDPICC_FIELDS:
+        for field_name, aliases in MEDDPICC_REQUIRED_FIELDS:
             found, value = find_field(section_lines, aliases)
             field_values[field_name] = value
             if not found or value is None:
                 missing.append("%s (MEDDPICC field is silently omitted; requires a value or explicit unknown/blocked marker)" % field_name)
+        for field_name, aliases in MEDDPICC_OPTIONAL_FIELDS:
+            found, value = find_field(section_lines, aliases)
+            field_values[field_name] = value
+            if found and value is None:
+                missing.append("%s (declared but no value captured; optional fields may be omitted entirely, but a declared label must carry a value or explicit unknown/blocked/not-applicable marker)" % field_name)
 
     # Advancement-past-initial-qualification check: EB + Champion must be named, not TBD.
     advanced = has_any(
