@@ -16,10 +16,17 @@ Run before treating any change to `sales/hooks/directive.sh` or
 
     bash sales/hooks/tests/run-stub-check.sh
 
-By default this resolves core as a literal sibling of `sales/`
-(`$CLAUDE_PLUGIN_ROOT/../core`). If your install doesn't place core there,
-override with `CORE_PLUGIN_ROOT`:
+If `CORE_PLUGIN_ROOT` is set, it is used directly (unchanged from prior
+behavior) — override with it if your install doesn't place core as a
+literal sibling of `sales/`:
 
     CORE_PLUGIN_ROOT=/path/to/core bash sales/hooks/tests/run-stub-check.sh
 
-Exit code 0 means PASS.
+If `CORE_PLUGIN_ROOT` is unset, the script pre-flights core resolution
+per the canonical test-env resolution convention
+(`docs/specs/test-env-resolution.md`, on-the-record issue #551, issue
+#25): `$CLAUDE_PLUGIN_ROOT_CORE`, then sibling-checkout candidates, then
+SKIP.
+
+Exit code 0 means PASS. Exit code 75 means SKIP — core is unreachable
+outside the spawn env; this is not a failure.
