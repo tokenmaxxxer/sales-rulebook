@@ -1,9 +1,17 @@
 ---
-code_under_review: pending-commit
+code_under_review:
+  - tests/lib/test_env_resolve.py
+  - sales-proposal-norm/tests/run-gate-tests.sh
+  - sales-stage-definitions/tests/run-gate-tests.sh
+  - sales-qualification-meddpicc/tests/run-gate-tests.sh
+  - sales-playbook/tests/run-gate-tests.sh
+  - sales/hooks/tests/run-stub-check.sh
+  - docs/handbooks/stub-check.md
+  - docs/handbooks/test-env-resolution.md
 type: fix
 breaking: false
 verdict: pass
-loop_state: committing
+loop_state: landed
 ---
 
 # Implementation record — issue #25
@@ -107,7 +115,7 @@ unreachable path still SKIPs (exit 75), spawn-env path still runs (exit
 
 closed_checks:
 - CORE_PLUGIN_ROOT override still works after adding the pre-flight
-  resolver (code_under_review: pending-commit) — re-verified manually,
+  resolver (code_under_review: 6c392bb) — re-verified manually,
   see Verification run below.
 
 ## Open findings
