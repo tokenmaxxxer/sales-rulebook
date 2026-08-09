@@ -3,6 +3,15 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 HOOKS="$HERE/../hooks"
 GATE="$HOOKS/proposal-norm-gate.sh"
+
+# Pre-flight core resolution per docs/specs/test-env-resolution.md
+# (on-the-record, issue #551): outside the spawn env, SKIP instead of
+# letting the gate's own source failure read as a misleading FAIL.
+resolved="$(python3 "$HERE/../../tests/lib/test_env_resolve.py" "$HERE/../../core" "$HERE/../../../tokenmaxxxer-core/core")"
+rc=$?
+[ "$rc" -eq 75 ] && exit 75
+export CLAUDE_PLUGIN_ROOT_CORE="$resolved"
+
 pass=0; fail=0
 report() { if [ "$2" = "$1" ]; then pass=$((pass+1)); printf 'ok     %-30s %s\n' "$3" "$2"; else fail=$((fail+1)); printf 'FAIL   %-30s want=%s got=%s\n' "$3" "$1" "$2"; fi; }
 

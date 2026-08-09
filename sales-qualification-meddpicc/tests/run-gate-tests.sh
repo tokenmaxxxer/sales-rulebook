@@ -7,6 +7,14 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 GATE="$SCRIPT_DIR/../hooks/qualification-gate.sh"
 
+# Pre-flight core resolution per docs/specs/test-env-resolution.md
+# (on-the-record, issue #551): outside the spawn env, SKIP instead of
+# letting the gate's own source failure read as a misleading FAIL.
+resolved="$(python3 "$SCRIPT_DIR/../../tests/lib/test_env_resolve.py" "$SCRIPT_DIR/../../core" "$SCRIPT_DIR/../../../tokenmaxxxer-core/core")"
+rc=$?
+[ "$rc" -eq 75 ] && exit 75
+export CLAUDE_PLUGIN_ROOT_CORE="$resolved"
+
 pass=0
 fail=0
 
