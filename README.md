@@ -43,6 +43,12 @@ claude plugin install warrant
 
 ## Layout
 
+- `playbook/` — operational playbook (issue #1174): per-decision-axis
+  condition->choice->source rule tables (qualification-and-discovery,
+  objection-handling, pitch-scoping-and-messaging-handoff), each file
+  carrying a `rule_count_floor`/`axis` front-matter pair for
+  `gates/playbook_depth_gate.py` (parent repo) to verify against. Peer
+  to the plugin dirs below, not nested under docs/.
 - `sales/` — role-shell (thin): identity, hand-off, composes the four
   methodology plugins below into one SessionStart directive.
   - `.claude-plugin/plugin.json` — plugin manifest
