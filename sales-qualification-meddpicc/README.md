@@ -12,6 +12,20 @@ likewise named here but enforced by an external `role-spec-reference-guard.sh`
 hook not present in this repo — this gate only checks that the fields carry
 a value, not that the value resolves to a reference.
 
+## Judgment notes (not gate-enforced)
+
+A field's captured value should name the observable signal it rests on
+(a public filing, a pricing page, a stated deadline, a direct quote
+from the buyer) rather than stand as a bare label — a value with no
+traceable basis carries the same qualification risk as a silent
+omission, even though the gate above only checks presence. Economic
+Buyer and Champion, once named, should also be placed in the context
+of the deal's other identified buying-committee members (who else has
+influence or access, and how the named individual's authority compares
+to theirs) rather than recorded as an isolated name with no committee
+context — a named Economic Buyer with no visibility into who else
+influences the decision is only partially qualified.
+
 ## Gate mechanics (issue-13 phase 2)
 
 `hooks/qualification-gate.sh` sources the shared gate-house library
