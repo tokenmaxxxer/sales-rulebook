@@ -61,6 +61,18 @@ document does not trigger a false deny.
 Kill switch: `SALES_PLAYBOOK_GATE_OFF=1` (unrecognized values, including
 typos, leave the gate active).
 
+## Judgment notes (not gate-enforced)
+
+The objection-handling section reads better as a tracked pattern set
+than a per-deal restatement: recurring objections across deals should
+carry a name, an observed frequency, and the stage they tend to recur
+at, so the same objection is recognized on its second and third
+appearance instead of being re-diagnosed from scratch each time. A
+playbook that only lists objections encountered in one deal, with no
+cross-deal pattern view, misses the signal that a specific objection is
+systemic (worth a standing counter in the playbook) versus one-off
+(worth noting and moving on).
+
 ## Tests
 
 ```
